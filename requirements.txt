@@ -1,1 +1,2 @@
-pip install googlesearch-python pandas
+googlesearch-python
+pandas
