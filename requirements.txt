@@ -1,2 +1,2 @@
-googlesearch-python
+duckduckgo-search
 pandas
