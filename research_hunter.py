@@ -5,12 +5,12 @@ import random
 from datetime import datetime
 
 # --- CONFIGURATION ---
-OUTPUT_FILE = f"brand_intel_report_{datetime.now().strftime('%Y-%m-%d')}.csv"
+OUTPUT_FILE = f"brand_intel_news_{datetime.now().strftime('%Y-%m-%d')}.csv"
 RESULTS_PER_TERM = 3 
 
-# The Target List
+# The "Spanish 80" High-Value List
 BRANDS = [
-    # FASHION
+    # FASHION (Fakes)
     "Mango", "Desigual", "Bimba y Lola", "Loewe", "Tous", "Aristocrazy", 
     "Uno de 50", "PDPAOLA", "Majorica", "Suarez", "Rabat", "Festina", 
     "Camper", "Pikolinos", "Munich Sports", "Hoff Brand", "Pompeii Brand",
@@ -19,96 +19,103 @@ BRANDS = [
     "Purificacion Garcia", "Adolfo Dominguez", "Lola Casademunt", 
     "Mayoral", "Panama Jack", "Pretty Ballerinas", "Lottusse",
     
-    # PHARMA/BEAUTY
+    # PHARMA (Fakes/Health)
     "ISDIN", "Natura Bissé", "Cantabria Labs", "Germaine de Capuccini", 
     "Sesderma", "Cinfa", "Almirall", "Grifols",
     
-    # FOOD/DRINK
+    # FOOD/DRINK (Fraud)
     "Mercadona", "Estrella Galicia", "Mahou", "Osborne", "Cinco Jotas", 
     "Joselito Ham", "Vega Sicilia", "Familia Torres", "Freixenet", 
     "Deoleo", "El Pozo", "Valor Chocolates",
     
-    # FINANCE/GAMING/AUTO
+    # FINANCE/AUTO (Phishing)
     "Banco Santander", "BBVA", "CaixaBank", "Mapfre", "Mutua Madrileña", 
     "Cirsa", "Codere", "Seat", "Cupra", "Cecotec"
 ]
 
-def get_ddg_links(query, num_results=3):
-    """Performs a DuckDuckGo search and returns links."""
+def get_news_links(query, brand, category):
+    """Searches specifically in the NEWS index."""
     links = []
     try:
-        # region='es-es' ensures we get Spanish results
         with DDGS() as ddgs:
-            results = list(ddgs.text(query, region='es-es', max_results=num_results))
+            # timelimit='y' = Past Year (Keeps data fresh)
+            results = list(ddgs.news(query, region='es-es', timelimit='y', max_results=RESULTS_PER_TERM))
             for res in results:
                 links.append({
+                    "Brand": brand,
+                    "Category": category,
                     "Title": res.get('title'),
-                    "Link": res.get('href'),
-                    "Description": res.get('body')
+                    "Link": res.get('url'),  # Note: .news() uses 'url', not 'href'
+                    "Source": res.get('source'),
+                    "Date": res.get('date'),
+                    "Snippet": res.get('body')
                 })
     except Exception as e:
-        print(f"  ⚠️ Error: {e}")
+        print(f"  ⚠️ News Error ({brand}): {e}")
+    return links
+
+def get_pdf_reports(query, brand):
+    """Searches specifically for PDF files (Annual Reports)."""
+    links = []
+    try:
+        with DDGS() as ddgs:
+            # We must use .text() for PDFs, but we force filetype:pdf
+            results = list(ddgs.text(query, region='es-es', max_results=2))
+            for res in results:
+                links.append({
+                    "Brand": brand,
+                    "Category": "Annual Report",
+                    "Title": res.get('title'),
+                    "Link": res.get('href'),
+                    "Source": "Corporate PDF",
+                    "Date": "N/A",
+                    "Snippet": res.get('body')
+                })
+    except Exception as e:
+        print(f"  ⚠️ PDF Error ({brand}): {e}")
     return links
 
 def run_research():
     all_data = []
-    print(f"--- 🕵️ Starting Intel Hunt for {len(BRANDS)} Brands ---")
+    print(f"--- 📰 Starting News Hunter for {len(BRANDS)} Brands ---")
     
     for i, brand in enumerate(BRANDS):
-        print(f"[{i+1}/{len(BRANDS)}] Researching: {brand}...")
+        print(f"[{i+1}/{len(BRANDS)}] Checking News: {brand}...")
         
-        # 1. COUNTERFEIT NEWS
-        query_fake = f'"{brand}" (falsificaciones OR incautados OR "fake products" OR réplicas) site:es'
-        fakes = get_ddg_links(query_fake, RESULTS_PER_TERM)
-        for item in fakes:
-            item['Brand'] = brand
-            item['Category'] = "Counterfeit News"
-            all_data.append(item)
-            
-        time.sleep(random.uniform(1, 3)) # Polite delay
+        # 1. COUNTERFEIT NEWS (Strict News Search)
+        # We look for "seized", "police", "fakes"
+        q_fake = f'"{brand}" (incautados OR falsificaciones OR policia OR réplicas)'
+        all_data.extend(get_news_links(q_fake, brand, "Counterfeit News"))
+        time.sleep(1)
 
-        # 2. PHISHING/SCAMS
-        query_scam = f'"{brand}" (estafa OR phishing OR "sms fraudulento" OR ciberdelincuencia)'
-        scams = get_ddg_links(query_scam, RESULTS_PER_TERM)
-        for item in scams:
-            item['Brand'] = brand
-            item['Category'] = "Phishing/Scams"
-            all_data.append(item)
+        # 2. PHISHING/SCAM NEWS (Strict News Search)
+        # We look for warnings about scams
+        q_scam = f'"{brand}" (alerta estafa OR phishing OR "campaña fraudulenta")'
+        all_data.extend(get_news_links(q_scam, brand, "Phishing News"))
+        time.sleep(1)
 
-        time.sleep(random.uniform(1, 3))
+        # 3. ANNUAL REPORTS (PDF Search)
+        # We look for the "Risks" section in annual reports
+        q_pdf = f'"{brand}" ("protección de marca" OR "brand protection" OR "riesgos") filetype:pdf'
+        all_data.extend(get_pdf_reports(q_pdf, brand))
+        time.sleep(2) # Polite delay
 
-        # 3. CORPORATE RISK REPORTS
-        query_pdf = f'"{brand}" ("brand protection" OR "propiedad industrial" OR "riesgos") filetype:pdf'
-        pdfs = get_ddg_links(query_pdf, 2)
-        for item in pdfs:
-            item['Brand'] = brand
-            item['Category'] = "Annual Reports"
-            all_data.append(item)
-            
-        time.sleep(random.uniform(1, 3))
-
-    # --- ALWAYS SAVE FILE (Even if empty) ---
+    # Save to CSV
     if not all_data:
-        print("⚠️ No results found. Creating empty report.")
-        all_data.append({
-            "Brand": "NONE",
-            "Category": "INFO",
-            "Title": "No results found during this run",
-            "Link": "",
-            "Description": "Try increasing the number of brands or changing search terms."
-        })
+        print("⚠️ No news found. Saving empty report.")
+        all_data.append({"Brand": "NONE", "Title": "No results found"})
 
     df = pd.DataFrame(all_data)
-    # Ensure columns exist even if data is empty
-    columns = ['Brand', 'Category', 'Title', 'Link', 'Description']
-    for col in columns:
-        if col not in df.columns:
-            df[col] = ""
-            
-    df = df[columns]
+    
+    # Ensure clean column order
+    cols = ["Brand", "Category", "Date", "Source", "Title", "Link", "Snippet"]
+    for c in cols:
+        if c not in df.columns: df[c] = ""
+    
+    df = df[cols]
     df.to_csv(OUTPUT_FILE, index=False)
     
-    print(f"\n✅ Run Complete. Saved to: {OUTPUT_FILE}")
+    print(f"\n✅ News Hunt Complete. Saved to: {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     run_research()
